@@ -109,7 +109,6 @@ class OffensiveAgent(CaptureAgent):
   def getWeights(self,gameState,action):
 	return {'successorScore':100,'distanceToFood':-1,'capsuleDistance':-150,'defenderDistance':300,'invaderDistance':-10,'numInvaders':-1000}
 
-
 class DefensiveAgent(CaptureAgent):
   def __init__(self, index):
         self.index = index
@@ -143,6 +142,8 @@ class DefensiveAgent(CaptureAgent):
     enemies = [successor.getAgentState(i) for i in self.getOpponents(successor)]
     invaders = [a for a in enemies if a.isPacman and a.getPosition() != None]
     features['numInvaders'] = len(invaders)
+    #if(scared ...)features['numInvaders'] = 0
+    
     if len(invaders) > 0:
       dists = [self.getMazeDistance(myPos, a.getPosition()) for a in invaders]
       features['invaderDistance'] = min(dists)
@@ -150,11 +151,27 @@ class DefensiveAgent(CaptureAgent):
     rev = Directions.REVERSE[gameState.getAgentState(self.index).configuration.direction]
     if action == rev: features['reverse'] = 1
     teamNums = self.getTeam(gameState)
-    features['Distancefromstart'] = self.getMazeDistance(gameState.getInitialAgentPosition(teamNums[0]), gameState.getInitialAgentPosition(teamNums[1]))
+    initPos = gameState.getInitialAgentPosition(teamNums[0])
+    # use the minimum noisy distance between our agent and their agent
+    features['DistancefromStart'] = myPos[0] - initPos[0]
+    if(features['DistancefromStart'] < 0): features['DistancefromStart'] *= -1
+    if(features['DistancefromStart'] >= 10):features['DistancefromStart'] = 10
+    features['DistancefromStart'] *= features['DistancefromStart']
+    if(features['DistancefromStart'] <= 4):features['DistancefromStart'] += 1
+    if(features['DistancefromStart'] == 1):features['DistancefromStart'] == -9999
+    
     features['stayApart'] = self.getMazeDistance(gameState.getAgentPosition(teamNums[0]), gameState.getAgentPosition(teamNums[1]))
+    features['onDefense'] = 1
+    features['offenseFood'] = 0
+    if myState.isPacman: features['onDefense'] = 0
+    if(len(invaders) == 0 and successor.getScore() <= 0):
+      features['onDefense'] =-1
+      features['offenseFood'] = min([self.getMazeDistance(myPos,food) for food in self.getFood(successor).asList()])
+      features['foodCount'] = len(self.getFood(successor).asList())
     if(len(invaders) != 0):
       features['stayApart'] = 0
+      features['DistancefromStart'] = 0
     return features
 
   def getWeights(self,gameState, action):
-    return {'Distancefromstart': 5, 'numInvaders': -2000, 'onDefense': 400, 'stayApart': 4, 'invaderDistance':-800, 'stop':-10,'reverse':-2}
+    return {'foodCount': -20,'offenseFood': -1, 'DistancefromStart': 4, 'numInvaders': -8000, 'onDefense': 10, 'stayApart': 10, 'invaderDistance':-1100, 'stop':-20,'reverse':-5}

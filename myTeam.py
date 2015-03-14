@@ -67,47 +67,100 @@ class OffensiveAgent(CaptureAgent):
 	weights = self.getWeights(gameState,action)
 	return features*weights
 
-#Most of the logic will go in this function...
-  def getFeatures(self,gameState,action):
+  def getFeatures(self, gameState, action):
   	#Start like getFeatures of OffensiveReflexAgent
-	features = util.Counter()
-	successor = self.getSuccessor(gameState,action)
+  	features = util.Counter()
+  	successor = self.getSuccessor(gameState,action)
 
-	#Get other variables for later use
-	agentState = successor.getAgentState(self.index)
-	capsules = self.getCapsules(successor)
-	enemies = [successor.getAgentState(i) for i in self.getOpponents(successor)]
-	position = successor.getAgentState(self.index).getPosition()
+  	#Get other variables for later use
+  	food = self.getFood(gameState)
+  	capsules = gameState.getCapsules()
+  	foodList = food.asList()
+  	walls = gameState.getWalls()
+  	x, y = gameState.getAgentState(self.index).getPosition()
+  	vx, vy = Actions.directionToVector(action)
+  	newx = int(x + vx)
+  	newy = int(y + vy)
+  	
 
-	#Get set of invaders and defenders
-	invaders = [a for a in enemies if a.isPacman and a.getPosition() != None]
-	defenders = [a for a in enemies if not a.isPacman and a.getPosition() != None]
+  	#Get set of invaders and defenders
+  	enemies = [gameState.getAgentState(a) for a in self.getOpponents(gameState)]
+  	invaders = [a for a in enemies if not a.isPacman and a.getPosition() != None]
+  	defenders =[a for a in enemies if a.isPacman and a.getPosition() != None]
+    
+    #Check if pacman has stopped
+  	if action==Directions.STOP:
+  		features["stuck"] = 1.0
+ 	  	  	  	
+  	#Get ghosts close by
+  	for ghost in invaders:
+  		ghostpos = ghost.getPosition()
+  		neighbors = Actions.getLegalNeighbors(ghostpos, walls)
+  		if (newx, newy) == ghostpos:
+  			if ghost.scaredTimer == 0:
+  				features["scaredGhosts"] = 0
+  				features["normalGhosts"] = 1
+  			else:
+  				features["eatFood"] += 2
+  				features["eatGhost"] += 1		
+  		elif ((newx, newy) in neighbors) and (ghost.scaredTimer > 0):
+  			features["scaredGhosts"] += 1
+  		elif (successor.getAgentState(self.index).isPacman) and (ghost.scaredTimer > 0):
+  			features["scaredGhosts"] = 0
+  			features["normalGhosts"] += 1
+
+  	#How to act if scared or not scared
+  	if gameState.getAgentState(self.index).scaredTimer == 0:		
+  		for ghost in defenders:
+  			ghostpos = ghost.getPosition()
+  			neighbors = Actions.getLegalNeighbors(ghostpos, walls)
+  			if (newx, newy) == ghostpos:
+  				features["eatInvader"] = 1
+  			elif (newx, newy) in neighbors:
+  				features["closeInvader"] += 1
+  	else:
+  		for ghost in enemies:
+  			if ghost.getPosition()!= None:
+  				ghostpos = ghost.getPosition()
+  				neighbors = Actions.getLegalNeighbors(ghostpos, walls)
+  				if (newx, newy) in neighbors:
+  					features["closeInvader"] += -10
+  					features["eatInvader"] = -10
+  				elif (newx, newy) == ghostpos:
+  					features["eatInvader"] = -10
+  		
+  	#Get capsules when nearby
+  	for cx, cy in capsules:
+  		if newx == cx and newy == cy and successor.getAgentState(self.index).isPacman:
+  			features["eatCapsule"] = 1.0
+
+  	#When to eat
+  	if not features["normalGhosts"]:
+  		if food[newx][newy]:
+  			features["eatFood"] = 1.0
+  		if len(foodList) > 0:
+  			tempFood =[]
+  			for food in foodList:
+  				food_x, food_y = food
+  				adjustedindex = self.index-self.index%2
+  				check1 = food_y>(adjustedindex/2) * walls.height/3
+  				check2 = food_y<((adjustedindex/2)+1) * walls.height/3
+  				if (check1 and check2):
+  					tempFood.append(food)
+   			if len(tempFood) == 0:
+   				tempFood = foodList
+   			mazedist = [self.getMazeDistance((newx, newy), food) for food in tempFood]
+			if min(mazedist) is not None:
+				walldimensions = walls.width * walls.height
+				features["nearbyFood"] = float(min(mazedist)) / walldimensions	
+	features.divideAll(10.0)
 	
-	#Set value for features
-	features['successorScore'] = self.getScore(successor)
-	features['distanceToFood'] = min([self.getMazeDistance(position,food) for food in self.getFood(successor).asList()])
-	features['capsuleDistance'] = 0
-	features['defenderDistance'] = 0 #Stays away from defensive agents from the other team
-	features['invaderDistance'] = 0
-	features['numInvaders'] = len(invaders)
-
-	#Set behavior when Pacman and there are defenders
-	if(agentState.isPacman and len(defenders) > 0):   
-	  features['defenderDistance'] = min([self.getMazeDistance(position,a.getPosition()) for a in defenders])
-	  if(len(capsules) > 0):
-		capsuleDistance = min([self.getMazeDistance(position,cap) for cap in capsules])
-		features['capsuleDistance'] = capsuleDistance
-
-	#Act as DefensiveAgent if not Pacman, there are invaders, and agent is not scared
-	if(agentState.isPacman == False and len(invaders) > 0 and agentState.scaredTimer == 0):
-	  dists =[self.getMazeDistance(position,a.getPosition()) for a in invaders]
-	  features['invaderDistance'] = min(dists)
-	  features['numInvaders'] = len(invaders)
-
 	return features
+  
+  def getWeights(self, gameState, action):
+    return {'eatInvader':5, 'closeInvader':0, 'teammateDist': 1.5, 'nearbyFood': -1, 'eatCapsule': 10.0,
+    'normalGhosts': -20, 'eatGhost': 1.0, 'scaredGhosts': 0.1, 'stuck': -5, 'eatFood': 1}
 
-  def getWeights(self,gameState,action):
-	return {'successorScore':100,'distanceToFood':-1,'capsuleDistance':-150,'defenderDistance':300,'invaderDistance':-10,'numInvaders':-1000}
 
 class DefensiveAgent(CaptureAgent):
   def __init__(self, index):
